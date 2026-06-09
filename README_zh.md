@@ -14,14 +14,7 @@ English version: [README.md](./README.md)
 
 ## 界面截图
 
-<p>
-  <img src="docs/images/HapiGo_2026-06-09_02.35.08.png" alt="Archipelago Island 概览" width="49%">
-  <img src="docs/images/image.png" alt="Archipelago 群聊界面" width="49%">
-</p>
-<p>
-  <img src="docs/images/HapiGo_2026-06-09_02.38.05.png" alt="Archipelago 嵌入式运行时" width="49%">
-  <img src="docs/images/HapiGo_2026-06-09_02.39.37.png" alt="Archipelago 产物预览" width="49%">
-</p>
+<img src="docs/images/readme-screenshots.png" alt="Archipelago 界面截图" width="100%">
 
 ## 目录
 

@@ -14,14 +14,7 @@ Chinese version: [README_zh.md](./README_zh.md)
 
 ## Screenshots
 
-<p>
-  <img src="docs/images/HapiGo_2026-06-09_02.35.08.png" alt="Archipelago Island overview" width="49%">
-  <img src="docs/images/image.png" alt="Archipelago group chat interface" width="49%">
-</p>
-<p>
-  <img src="docs/images/HapiGo_2026-06-09_02.38.05.png" alt="Archipelago embedded runtime" width="49%">
-  <img src="docs/images/HapiGo_2026-06-09_02.39.37.png" alt="Archipelago artifact preview" width="49%">
-</p>
+<img src="docs/images/readme-screenshots.png" alt="Archipelago screenshots" width="100%">
 
 ## Table of Contents
 
