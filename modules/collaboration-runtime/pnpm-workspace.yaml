@@ -5,3 +5,6 @@ allowBuilds:
   msw: true
   sharp: true
   unrs-resolver: true
+
+overrides:
+  mermaid: ^11.13.0
