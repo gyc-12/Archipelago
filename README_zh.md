@@ -12,6 +12,11 @@ Archipelago 是一个 macOS 多 Agent 协作应用，用于从同一个桌面入
 
 English version: [README.md](./README.md)
 
+## 录屏
+
+
+https://github.com/user-attachments/assets/89d5c619-5cfc-46a4-ae5e-9dc7cce154d9
+
 ## 界面截图
 
 <img src="docs/images/readme-screenshots.png" alt="Archipelago 界面截图" width="100%">
