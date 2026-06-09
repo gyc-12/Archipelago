@@ -1,0 +1,3 @@
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Check prompt enrichment against group membership, primary-agent, mention parsing, and tests-required contracts."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Check packaged Codeg helper build and integrated launch expectations."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check boundary behavior between API, database, ACP runtime, and UI event rendering."}

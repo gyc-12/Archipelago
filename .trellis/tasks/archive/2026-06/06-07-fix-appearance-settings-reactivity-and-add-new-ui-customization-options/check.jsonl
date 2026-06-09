@@ -1,0 +1,2 @@
+{"file": "apps/archipelago-macos/Sources/ArchipelagoApp/ArchipelagoServer/GroupChatListView.swift", "reason": "验证间距和 badge 过滤逻辑正确"}
+{"file": "apps/archipelago-macos/Sources/ArchipelagoApp/Views/AppearanceSettingsPane.swift", "reason": "验证响应式修复和新设置 UI"}

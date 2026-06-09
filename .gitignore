@@ -1,0 +1,41 @@
+.DS_Store
+**/.DS_Store
+
+# Swift/Xcode build artifacts
+.build/
+**/.build/
+.swiftpm/
+**/.swiftpm/
+DerivedData/
+build/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcuserdatad/
+*.xcuserstate
+
+# Node/Vite build artifacts
+node_modules/
+**/node_modules/
+dist/
+dist-ssr/
+.next/
+out/
+coverage/
+.vitest-cache/
+tsconfig.tsbuildinfo
+public/vs/
+
+# Rust/Tauri build artifacts
+target/
+**/target/
+**/gen/schemas/
+
+# Logs and temp files
+*.log
+*.tmp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+.agents

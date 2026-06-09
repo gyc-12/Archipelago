@@ -1,0 +1,30 @@
+{
+  "name": "delegate_to_agent",
+  "description": "Delegate a self-contained task to another local AI agent and return the sub-agent's result. The sub-agent runs in a separate session without access to the current conversation, so include all required context in `task`.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["agent_type", "task"],
+    "properties": {
+      "agent_type": {
+        "type": "string",
+        "enum": [
+          "claude_code",
+          "codex",
+          "open_code",
+          "gemini",
+          "cline",
+          "open_claw"
+        ],
+        "description": "Agent type to launch as the sub-agent for this delegated task."
+      },
+      "task": {
+        "type": "string",
+        "description": "Complete task prompt for the sub-agent, including the goal, relevant context, constraints, and expected output. The sub-agent cannot see this conversation."
+      },
+      "working_dir": {
+        "type": "string",
+        "description": "Absolute directory where the sub-agent should run. Defaults to the parent session's current working directory."
+      }
+    }
+  }
+}

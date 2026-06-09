@@ -1,0 +1,194 @@
+/* Common */
+"app.name" = "Archipelago";
+"app.name.oss" = "Archipelago";
+"app.description" = "macOS AI 编程代理伴侣";
+
+/* Settings - Tab Labels */
+"settings.tab.general" = "通用";
+"settings.tab.display" = "显示";
+"settings.tab.sound" = "声音";
+"settings.tab.shortcuts" = "快捷键";
+"settings.tab.lab" = "实验室";
+"settings.tab.about" = "关于";
+
+/* Settings - Section Headers */
+"settings.section.system" = "系统";
+"settings.section.advanced" = "高级";
+
+/* Settings - General */
+"settings.general.launchAtLogin" = "登录时打开";
+"settings.general.monitor" = "显示器";
+"settings.general.automatic" = "自动";
+"settings.general.behavior" = "行为";
+"settings.general.hideFullscreen" = "全屏时隐藏";
+"settings.general.autoHideNoSessions" = "无活跃会话时自动隐藏";
+"settings.general.autoCollapse" = "鼠标离开时自动收起";
+"settings.general.showDockIcon" = "在 Dock 中显示图标";
+"settings.general.hapticFeedback" = "悬停时震动反馈";
+"settings.general.suppressFrontmostNotifications" = "前台会话不弹出通知";
+"settings.general.showCodexUsage" = "显示 Codex 用量";
+"settings.general.completionReply" = "在完成卡片中回复";
+"settings.general.cancel" = "取消";
+"settings.general.language" = "语言";
+"settings.general.languageSystem" = "跟随系统";
+"settings.general.languageEnglish" = "English";
+"settings.general.languageChinese" = "简体中文";
+"settings.general.languageTraditionalChinese" = "繁體中文";
+
+/* Settings - Personalization (v6) */
+"settings.tab.appearance" = "个性化";
+"settings.appearance.preview" = "预览";
+"settings.appearance.preview.external" = "外接屏";
+"settings.appearance.preview.macbook" = "MacBook";
+"settings.appearance.state.idle" = "空闲";
+"settings.appearance.state.running" = "运行";
+"settings.appearance.state.waiting" = "等待";
+"settings.appearance.state.auto.on" = "自动 ✓";
+"settings.appearance.state.auto.off" = "自动";
+"settings.appearance.rightSlot.title" = "01 · 右槽";
+"settings.appearance.rightSlot.note" = "收起状态下岛右侧显示的内容。";
+"settings.appearance.rightSlot.count" = "会话数";
+"settings.appearance.rightSlot.agents" = "代理";
+"settings.appearance.rightSlot.none" = "不显示";
+"settings.appearance.centerLabel.title" = "02 · 中央标签";
+"settings.appearance.centerLabel.note" = "仅外接屏显示 — MacBook 的物理刘海会遮挡中央区域。";
+"settings.appearance.centerLabel.agentAction" = "代理 · 动作";
+"settings.appearance.centerLabel.sessionName" = "会话名";
+"settings.appearance.centerLabel.off" = "关闭";
+"settings.appearance.notchPart.title" = "刘海";
+"settings.appearance.sessionListPart.title" = "群聊列表";
+"settings.appearance.sessionPreview" = "预览";
+"settings.appearance.profile.title" = "显示器配置";
+"settings.appearance.profile.note" = "选择正在配置的屏幕类型。Archipelago 会在悬浮窗切换屏幕时自动应用对应配置。";
+"settings.appearance.profile.external.title" = "外接屏";
+"settings.appearance.profile.external.note" = "没有 MacBook 刘海外圆角的顶部栏布局。";
+"settings.appearance.profile.macbook.title" = "MacBook 刘海屏";
+"settings.appearance.profile.macbook.note" = "内置刘海屏布局，保留刘海感知几何。";
+"settings.appearance.groupChatSort.title" = "05 · 群聊排序";
+"settings.appearance.groupChatSort.note" = "选择群聊列表的默认排序。";
+"settings.appearance.groupChatSort.name" = "名称";
+"settings.appearance.groupChatSort.recentActivity" = "最近活动";
+"settings.appearance.groupChatSort.createdAt" = "创建时间";
+"settings.appearance.listSpacing.title" = "06 · 列表间距";
+"settings.appearance.listSpacing.note" = "控制群聊列表的紧凑程度。";
+"settings.appearance.listSpacing.compact" = "紧凑";
+"settings.appearance.listSpacing.standard" = "标准";
+"settings.appearance.listSpacing.relaxed" = "宽松";
+"settings.appearance.agentBadge.title" = "07 · Agent 显示";
+"settings.appearance.agentBadge.note" = "选择群聊列表中显示哪些 Agent。";
+"settings.appearance.agentBadge.all" = "全部显示";
+"settings.appearance.agentBadge.primaryOnly" = "仅主 Agent";
+"settings.appearance.preview.permissionNeeded" = "需要授权";
+"settings.appearance.preview.agentEditing" = "Claude · 正在编辑";
+"settings.appearance.preview.approveShellCommand" = "审批 Shell 命令";
+"settings.appearance.preview.promptImplementPlan" = "你：执行计划";
+"settings.appearance.preview.waitingForAnswer" = "等待回答";
+"settings.appearance.preview.promptChooseNotificationCopy" = "你：选择通知文案";
+"settings.appearance.preview.editingSessionListPreview" = "正在编辑会话列表预览";
+"settings.appearance.preview.promptTightenSettingsUI" = "你：收紧设置界面";
+"settings.appearance.preview.replyAvailable" = "可继续回复";
+"settings.appearance.preview.promptSummarizeDesignBundle" = "你：总结设计包";
+"settings.appearance.preview.completedEarlier" = "稍早已完成";
+"settings.appearance.preview.permissionBody" = "$ npm run build";
+"settings.appearance.preview.pickOrTypeAnswer" = "选择或输入回答";
+
+/* Settings - Display */
+"settings.display.monitor" = "显示器";
+"settings.display.position" = "显示位置";
+"settings.display.diagnostics" = "诊断";
+"settings.display.currentScreen" = "当前屏幕";
+"settings.display.layoutMode" = "布局模式";
+
+/* Settings - Sound */
+"settings.sound.notifications" = "通知音效";
+"settings.sound.mute" = "静音";
+"settings.sound.selectSound" = "选择音效";
+
+/* Settings - Setup */
+"settings.tab.setup" = "Archipelago 同步";
+"setup.section.archipelagoRuntime" = "内嵌 Archipelago";
+"setup.section.syncScope" = "同步范围";
+"setup.section.lifecycle" = "生命周期同步";
+"setup.archipelago.retry" = "重试";
+"setup.archipelago.footer" = "Island 当前只维护从 Island 创建的群聊；状态和回复摘要来自内嵌 Archipelago 的 WebSocket/HTTP 事件。";
+"setup.archipelago.groups" = "群聊";
+"setup.archipelago.agents" = "Agent";
+"setup.archipelago.eventSource" = "事件源";
+"setup.archipelago.status.loading" = "正在连接 Archipelago";
+"setup.archipelago.status.connected" = "Archipelago 已连接";
+"setup.archipelago.status.disconnected" = "Archipelago 未连接";
+"setup.archipelago.status.loadingMessage" = "Archipelago 正在启动包内 archipelago-server。";
+"setup.archipelago.status.connectedMessage" = "群聊状态会通过 Archipelago 事件实时同步到 Island。";
+"setup.archipelago.status.disconnectedMessage" = "内嵌 Archipelago 服务未连接。";
+"setup.archipelago.busyRule.title" = "回复中显示忙碌";
+"setup.archipelago.busyRule.message" = "Archipelago 发送 status_changed/prompting 时，对应 Agent 显示忙碌中。";
+"setup.archipelago.doneRule.title" = "完成后展示摘要";
+"setup.archipelago.doneRule.message" = "Archipelago 发送 turn_complete 时，对应 Agent 回到空闲中，并记录最后回复摘要。";
+"setup.archipelago.lifecycleFooter" = "无需安装 CLI hooks；外部终端绕过 Archipelago 的会话不在本阶段同步范围内。";
+
+/* Settings - Placeholder */
+"settings.shortcuts.comingSoon" = "快捷键设置即将推出。";
+"settings.lab.comingSoon" = "实验性功能即将推出。";
+
+/* Settings - About */
+"settings.about.version" = "版本 %@";
+"settings.about.checkForUpdates" = "检查更新…";
+"settings.about.quitApp" = "退出 Archipelago";
+"island.quit.confirmTitle" = "退出 Archipelago？";
+"island.quit.confirmAction" = "退出";
+"island.quit.confirmMessage" = "确定要退出吗？";
+
+/* Settings - Update */
+"settings.update.available" = "v%@ 可更新 — 点击更新";
+
+/* Island Panel - Bootstrap */
+"island.checkingTerminals" = "正在检查打开的终端会话";
+"island.terminalOwnership" = "Archipelago 将在确认终端归属后显示实时代理";
+"island.noTerminals" = "没有打开的终端会话";
+"island.startAgent" = "在终端中启动编码代理";
+"island.recentSessions" = "最近的会话将保留在这里，直到终端重新打开";
+
+/* Island Panel - Session List */
+"island.sessionList.title" = "会话";
+"island.sessionOverview.total" = "总计";
+"island.sessionOverview.waiting" = "等待";
+"island.sessionOverview.waitingCompact" = "待";
+"island.sessionOverview.running" = "运行";
+"island.sessionOverview.runningCompact" = "跑";
+"island.sessionOverview.done" = "完成";
+"island.sessionOverview.idle" = "空闲";
+"island.section.sessions" = "会话";
+"island.section.needsApproval" = "需要审批";
+"island.section.needsAnswer" = "需要回答";
+"island.section.inProgress" = "进行中";
+"island.section.justDone" = "刚完成";
+"island.section.idle" = "空闲";
+"island.showAll" = "显示全部 %lld 个会话";
+"island.collapseList" = "收起列表";
+"island.usageWaiting" = "等待用量数据";
+
+/* Island Panel - Approval */
+"approval.toolPermissionRequested" = "请求工具权限";
+"approval.deny" = "拒绝";
+"approval.allowOnce" = "允许一次";
+"approval.alwaysAllow" = "始终允许（%@）";
+
+
+/* Island Panel - Subagents & Tasks */
+"subagents.title" = "子代理 (%lld)";
+"subagents.completed" = "完成";
+"tasks.summary" = "任务 (%lld 已完成, %lld 进行中, %lld 待处理)";
+
+/* Island Panel - Question */
+"question.submit" = "提交答案";
+"question.answerNeeded" = "需要回答";
+"question.otherPlaceholder" = "输入你的回答…";
+"question.sendReply" = "发送回复";
+"question.sendAnswer" = "提交答案";
+
+/* Island Panel - Completion */
+"completion.done" = "完成";
+"completion.replyPlaceholder" = "回复 %@…";
+
+/* Window Titles */
+"window.settings" = "Archipelago 设置";

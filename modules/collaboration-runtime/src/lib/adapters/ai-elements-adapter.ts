@@ -1,0 +1,1042 @@
+import type {
+  MessageTurn,
+  ContentBlock,
+  MessageRole,
+  TurnUsage,
+  AgentExecutionStats,
+  ToolCallStatus,
+} from "@/lib/types"
+import { isAgentLikeToolName } from "@/lib/adapters/tool-kind-classifier"
+
+/**
+ * Adapted content part types for AI SDK Elements components
+ */
+export type ToolCallState =
+  | "input-streaming"
+  | "input-available"
+  | "output-available"
+  | "output-error"
+
+export type AdaptedToolCallPart = {
+  type: "tool-call"
+  toolCallId: string
+  toolName: string
+  displayTitle?: string | null
+  input: string | null
+  state: ToolCallState
+  output?: string | null
+  errorText?: string
+  agentStats?: AgentExecutionStats | null
+  /**
+   * ACP extensibility metadata forwarded from `ContentBlock.tool_use.meta`.
+   * Opaque pass-through; the only consumer today is `<DelegatedSubThread>`
+   * which reads `meta["archipelago.delegation"]` as a binding fallback when the
+   * live DelegationContext entry is missing (page refresh, late mount).
+   */
+  meta?: Record<string, unknown> | null
+}
+
+/**
+ * Inline rendering of codex-acp v0.14+ image generation. Mirrors the
+ * `ContentBlock::ImageGeneration` data shape. Distinct from regular tool
+ * calls so it never folds into a `tool-group` — each image stands alone
+ * with its own labeled card. One image per part — multi-image turns are
+ * already split into multiple consecutive blocks at the runtime layer.
+ *
+ * `status` lets the renderer distinguish "still generating" from "the call
+ * failed without producing an image" when `image` is null. `null` means
+ * the source didn't carry status (Rust JSONL replay) — by definition such
+ * blocks always have an image, so the status is irrelevant there.
+ */
+export type AdaptedGeneratedImagePart = {
+  type: "generated-image"
+  revisedPrompt: string | null
+  /** `null` while the agent has emitted the ToolCall but no image yet. */
+  image: UserImageDisplay | null
+  status: ToolCallStatus | null
+}
+
+export type AdaptedContentPart =
+  | { type: "text"; text: string }
+  | AdaptedToolCallPart
+  | {
+      type: "tool-result"
+      toolCallId: string
+      output: string | null
+      errorText?: string
+      state: "output-available" | "output-error"
+    }
+  | { type: "reasoning"; content: string; isStreaming: boolean }
+  | {
+      type: "tool-group"
+      items: AdaptedToolCallPart[]
+      isStreaming: boolean
+    }
+  | AdaptedGeneratedImagePart
+
+export interface UserResourceDisplay {
+  name: string
+  uri: string
+  mime_type?: string | null
+}
+
+export interface UserImageDisplay {
+  name: string
+  data: string
+  mime_type: string
+  uri?: string | null
+}
+
+const BLOCKED_RESOURCE_MENTION_RE = /@([^\s@]+)\s*\[blocked[^\]]*\]/gi
+const MARKDOWN_LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g
+
+/**
+ * Adapted message format for AI SDK Elements
+ */
+export interface AdaptedMessage {
+  id: string
+  role: MessageRole
+  content: AdaptedContentPart[]
+  userResources?: UserResourceDisplay[]
+  userImages?: UserImageDisplay[]
+  timestamp: string
+  usage?: TurnUsage | null
+  duration_ms?: number | null
+  model?: string | null
+  /** Wall-clock completion time as ISO string (parsed once at the Rust layer). */
+  completed_at?: string | null
+}
+
+export interface AdapterMessageText {
+  attachedResources: string
+  toolCallFailed: string
+}
+
+type InlineToolSegment =
+  | { kind: "text"; value: string }
+  | { kind: "tool_call" | "tool_result"; value: string }
+
+const INLINE_TOOL_TAG_RE = /<(tool_call|tool_result)>\s*([\s\S]*?)\s*<\/\1>/gi
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
+function toInlinePayloadString(value: unknown): string | null {
+  if (value === null || value === undefined) return null
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function splitInlineToolSegments(text: string): InlineToolSegment[] | null {
+  INLINE_TOOL_TAG_RE.lastIndex = 0
+  const segments: InlineToolSegment[] = []
+  let cursor = 0
+  let foundTag = false
+
+  for (const match of text.matchAll(INLINE_TOOL_TAG_RE)) {
+    const full = match[0]
+    const tag = match[1]
+    const body = match[2]
+    const start = match.index ?? -1
+    if (start < 0) continue
+
+    foundTag = true
+    if (start > cursor) {
+      segments.push({
+        kind: "text",
+        value: text.slice(cursor, start),
+      })
+    }
+
+    if (tag === "tool_call" || tag === "tool_result") {
+      segments.push({
+        kind: tag,
+        value: body ?? "",
+      })
+    }
+
+    cursor = start + full.length
+  }
+
+  if (!foundTag) return null
+
+  if (cursor < text.length) {
+    segments.push({
+      kind: "text",
+      value: text.slice(cursor),
+    })
+  }
+
+  return segments
+}
+
+function parseInlineToolCallPayload(payload: string): {
+  toolName: string
+  toolCallId: string | null
+  input: string | null
+} {
+  const trimmed = payload.trim()
+  if (trimmed.length === 0) {
+    return { toolName: "tool", toolCallId: null, input: null }
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    const obj = asRecord(parsed)
+    if (!obj) {
+      return {
+        toolName: "tool",
+        toolCallId: null,
+        input: toInlinePayloadString(parsed),
+      }
+    }
+
+    const nameCandidates = [
+      obj.name,
+      obj.tool_name,
+      obj.tool,
+      obj.kind,
+      obj.type,
+    ]
+    const toolName =
+      nameCandidates
+        .find((value): value is string => typeof value === "string")
+        ?.trim() || "tool"
+
+    const idCandidates = [
+      obj.id,
+      obj.tool_call_id,
+      obj.tool_use_id,
+      obj.call_id,
+      obj.callId,
+    ]
+    const toolCallId =
+      idCandidates.find(
+        (value): value is string => typeof value === "string"
+      ) ?? null
+
+    const directInput =
+      obj.arguments ?? obj.input ?? obj.params ?? obj.payload ?? null
+    if (directInput !== null) {
+      return {
+        toolName,
+        toolCallId,
+        input: toInlinePayloadString(directInput),
+      }
+    }
+
+    const passthroughEntries = Object.entries(obj).filter(
+      ([key]) =>
+        ![
+          "name",
+          "tool_name",
+          "tool",
+          "kind",
+          "type",
+          "id",
+          "tool_call_id",
+          "tool_use_id",
+          "call_id",
+          "callId",
+        ].includes(key)
+    )
+    const fallbackInput =
+      passthroughEntries.length > 0
+        ? Object.fromEntries(passthroughEntries)
+        : null
+
+    return {
+      toolName,
+      toolCallId,
+      input: toInlinePayloadString(fallbackInput),
+    }
+  } catch {
+    return {
+      toolName: "tool",
+      toolCallId: null,
+      input: trimmed,
+    }
+  }
+}
+
+function parseInlineToolResultPayload(payload: string): {
+  output: string | null
+  isError: boolean
+} {
+  const trimmed = payload.trim()
+  if (trimmed.length === 0) {
+    return { output: null, isError: false }
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed === "string") {
+      return { output: parsed, isError: false }
+    }
+
+    const obj = asRecord(parsed)
+    if (!obj) {
+      return { output: toInlinePayloadString(parsed), isError: false }
+    }
+
+    const isError =
+      obj.is_error === true ||
+      obj.error === true ||
+      (typeof obj.status === "string" && obj.status.toLowerCase() === "error")
+
+    const outputCandidates = [
+      obj.output,
+      obj.result,
+      obj.text,
+      obj.content,
+      obj.stdout,
+      obj.stderr,
+      obj.message,
+    ]
+    const output = outputCandidates
+      .map((value) => toInlinePayloadString(value))
+      .find((value): value is string => typeof value === "string")
+
+    return {
+      output: output ?? toInlinePayloadString(parsed),
+      isError,
+    }
+  } catch {
+    return {
+      output: trimmed,
+      isError: false,
+    }
+  }
+}
+
+function expandInlineToolText(
+  text: string,
+  messageId: string,
+  blockIndex: number,
+  toolCallFailedText: string
+): AdaptedContentPart[] | null {
+  const segments = splitInlineToolSegments(text)
+  if (!segments) return null
+
+  const parts: AdaptedContentPart[] = []
+  let inlineCounter = 0
+
+  for (let index = 0; index < segments.length; index += 1) {
+    const segment = segments[index]
+
+    if (segment.kind === "text") {
+      if (segment.value.trim().length > 0) {
+        parts.push({
+          type: "text",
+          text: segment.value,
+        })
+      }
+      continue
+    }
+
+    if (segment.kind === "tool_call") {
+      const parsedCall = parseInlineToolCallPayload(segment.value)
+      const fallbackId = `${messageId}-inline-tool-${blockIndex}-${inlineCounter}`
+      const toolCallId = parsedCall.toolCallId ?? fallbackId
+
+      let output: string | null = null
+      let errorText: string | undefined
+      let state: ToolCallState = "output-available"
+
+      let lookahead = index + 1
+      while (
+        lookahead < segments.length &&
+        segments[lookahead].kind === "text" &&
+        segments[lookahead].value.trim().length === 0
+      ) {
+        lookahead += 1
+      }
+
+      if (
+        lookahead < segments.length &&
+        segments[lookahead].kind === "tool_result"
+      ) {
+        const parsedResult = parseInlineToolResultPayload(
+          segments[lookahead].value
+        )
+        output = parsedResult.output
+        if (parsedResult.isError) {
+          state = "output-error"
+          errorText = output ?? toolCallFailedText
+        }
+        index = lookahead
+      }
+
+      parts.push({
+        type: "tool-call",
+        toolCallId,
+        toolName: parsedCall.toolName,
+        input: parsedCall.input,
+        state,
+        output,
+        errorText,
+      })
+      inlineCounter += 1
+      continue
+    }
+
+    const parsedResult = parseInlineToolResultPayload(segment.value)
+    const toolCallId = `${messageId}-inline-tool-result-${blockIndex}-${inlineCounter}`
+    parts.push({
+      type: "tool-result",
+      toolCallId,
+      output: parsedResult.output,
+      errorText: parsedResult.isError
+        ? (parsedResult.output ?? toolCallFailedText)
+        : undefined,
+      state: parsedResult.isError ? "output-error" : "output-available",
+    })
+    inlineCounter += 1
+  }
+
+  return parts
+}
+
+function sanitizeMentionName(raw: string): string {
+  return raw.replace(/[),.;:!?]+$/g, "")
+}
+
+function normalizeResourceText(text: string): string {
+  return text
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+\n/g, "\n")
+    .replace(/\n\s+/g, "\n")
+    .trim()
+}
+
+function fileNameFromUri(uri: string): string {
+  try {
+    const url = new URL(uri)
+    const segment = url.pathname.split("/").pop() || ""
+    return decodeURIComponent(segment) || uri
+  } catch {
+    return uri
+  }
+}
+
+function addResource(
+  resources: UserResourceDisplay[],
+  resource: UserResourceDisplay
+) {
+  if (
+    resources.some(
+      (item) => item.name === resource.name && item.uri === resource.uri
+    )
+  ) {
+    return
+  }
+  resources.push(resource)
+}
+
+function addImage(images: UserImageDisplay[], image: UserImageDisplay) {
+  const key = `${image.mime_type}:${image.data.length}:${image.data.slice(0, 64)}`
+  if (
+    images.some(
+      (item) =>
+        `${item.mime_type}:${item.data.length}:${item.data.slice(0, 64)}` ===
+        key
+    )
+  ) {
+    return
+  }
+  images.push(image)
+}
+
+export function extractUserResourcesFromText(text: string): {
+  text: string
+  resources: UserResourceDisplay[]
+} {
+  const resources: UserResourceDisplay[] = []
+  const withoutBlocked = text.replace(
+    BLOCKED_RESOURCE_MENTION_RE,
+    (_match: string, mention: string) => {
+      const name = sanitizeMentionName(mention)
+      if (name.length > 0) {
+        addResource(resources, {
+          name,
+          uri: name,
+          mime_type: null,
+        })
+      }
+      return ""
+    }
+  )
+  const cleaned = withoutBlocked.replace(
+    MARKDOWN_LINK_RE,
+    (match: string, label: string, uri: string) => {
+      const normalizedLabel = label.trim()
+      const normalizedUri = uri.trim()
+      const hasMentionLabel = normalizedLabel.startsWith("@")
+      const isFileUri = normalizedUri.toLowerCase().startsWith("file://")
+      if (!hasMentionLabel && !isFileUri) {
+        return match
+      }
+
+      const candidateName = hasMentionLabel
+        ? normalizedLabel.slice(1)
+        : normalizedLabel
+      const name = sanitizeMentionName(candidateName) || fileNameFromUri(uri)
+      addResource(resources, {
+        name,
+        uri: normalizedUri,
+        mime_type: null,
+      })
+      return ""
+    }
+  )
+
+  return {
+    text: normalizeResourceText(cleaned),
+    resources,
+  }
+}
+
+function splitUserTextAndResources(
+  parts: AdaptedContentPart[],
+  attachedResourcesText: string
+): {
+  parts: AdaptedContentPart[]
+  resources: UserResourceDisplay[]
+} {
+  const resources: UserResourceDisplay[] = []
+  const nextParts: AdaptedContentPart[] = []
+
+  for (const part of parts) {
+    if (part.type !== "text") {
+      nextParts.push(part)
+      continue
+    }
+    const extracted = extractUserResourcesFromText(part.text)
+    if (extracted.resources.length > 0) {
+      resources.push(...extracted.resources)
+      if (extracted.text.length > 0) {
+        nextParts.push({ type: "text", text: extracted.text })
+      }
+    } else {
+      nextParts.push(part)
+    }
+  }
+
+  if (nextParts.length === 0 && resources.length > 0) {
+    nextParts.push({ type: "text", text: attachedResourcesText })
+  }
+
+  return { parts: nextParts, resources }
+}
+
+function deriveImageNameFromBlock(
+  block: Extract<ContentBlock, { type: "image" }>
+): string {
+  if (block.uri && block.uri.trim().length > 0) {
+    return fileNameFromUri(block.uri)
+  }
+  const ext = block.mime_type.split("/")[1]?.split("+")[0] ?? "image"
+  return `image.${ext}`
+}
+
+function extractUserImagesFromBlocks(
+  blocks: ContentBlock[]
+): UserImageDisplay[] {
+  const images: UserImageDisplay[] = []
+  for (const block of blocks) {
+    if (block.type !== "image") continue
+    if (!block.data || !block.mime_type) continue
+    addImage(images, {
+      name: deriveImageNameFromBlock(block),
+      data: block.data,
+      mime_type: block.mime_type,
+      uri: block.uri ?? null,
+    })
+  }
+  return images
+}
+
+/**
+ * Generate a stable tool call ID based on message ID and block index
+ */
+function generateToolCallId(messageId: string, blockIndex: number): string {
+  return `${messageId}-tool-${blockIndex}`
+}
+
+/**
+ * Transform a single ContentBlock to AdaptedContentPart
+ */
+function adaptContentBlock(
+  block: ContentBlock,
+  messageId: string,
+  blockIndex: number,
+  isStreaming: boolean = false
+): AdaptedContentPart | null {
+  switch (block.type) {
+    case "text":
+      return {
+        type: "text",
+        text: block.text,
+      }
+
+    case "tool_use":
+      return {
+        type: "tool-call",
+        toolCallId:
+          block.tool_use_id ?? generateToolCallId(messageId, blockIndex),
+        toolName: block.tool_name,
+        input: block.input_preview,
+        state: "input-available",
+        meta: block.meta ?? null,
+      }
+
+    case "tool_result":
+      return {
+        type: "tool-result",
+        toolCallId: generateToolCallId(messageId, blockIndex),
+        output: block.output_preview,
+        errorText: block.is_error
+          ? block.output_preview || undefined
+          : undefined,
+        state: block.is_error ? "output-error" : "output-available",
+      }
+
+    case "thinking":
+      return {
+        type: "reasoning",
+        content: block.text,
+        isStreaming,
+      }
+
+    case "image_generation": {
+      const img = block.image ?? null
+      const display: UserImageDisplay | null =
+        img && img.data && img.mime_type
+          ? {
+              name: deriveImageNameFromImageData(img),
+              data: img.data,
+              mime_type: img.mime_type,
+              uri: img.uri ?? null,
+            }
+          : null
+      return {
+        type: "generated-image",
+        revisedPrompt: block.revised_prompt ?? null,
+        image: display,
+        status: block.status ?? null,
+      }
+    }
+
+    default:
+      return null
+  }
+}
+
+function deriveImageNameFromImageData(img: {
+  data: string
+  mime_type: string
+  uri?: string | null
+}): string {
+  if (img.uri && img.uri.trim().length > 0) {
+    return fileNameFromUri(img.uri)
+  }
+  const ext = img.mime_type.split("/")[1]?.split("+")[0] ?? "image"
+  return `image.${ext}`
+}
+
+/**
+ * Merge adjacent tool-group parts in a parts array into a single tool-group.
+ * Used for cross-turn merging when concatenated content from consecutive
+ * assistant turns lands two tool-groups next to each other.
+ */
+export function mergeAdjacentToolGroups(
+  parts: AdaptedContentPart[]
+): AdaptedContentPart[] {
+  const result: AdaptedContentPart[] = []
+  for (const part of parts) {
+    const last = result[result.length - 1]
+    if (part.type === "tool-group" && last?.type === "tool-group") {
+      const mergedItems = [...last.items, ...part.items]
+      result[result.length - 1] = {
+        type: "tool-group",
+        items: mergedItems,
+        isStreaming: mergedItems.some(
+          (item) =>
+            item.state === "input-streaming" || item.state === "input-available"
+        ),
+      }
+    } else {
+      result.push(part)
+    }
+  }
+  return result
+}
+
+/**
+ * Wrap any consecutive run of tool-call parts into a single tool-group.
+ * Text, reasoning, tool-result and any other part types break the run.
+ * Even a single tool call is wrapped, so the renderer can present a uniform
+ * collapsed summary across history.
+ */
+export function groupConsecutiveToolCalls(
+  parts: AdaptedContentPart[]
+): AdaptedContentPart[] {
+  const result: AdaptedContentPart[] = []
+  let buffer: AdaptedToolCallPart[] = []
+
+  const flush = () => {
+    if (buffer.length === 0) return
+    const items = buffer
+    buffer = []
+    const isStreaming = items.some(
+      (item) =>
+        item.state === "input-streaming" || item.state === "input-available"
+    )
+    result.push({ type: "tool-group", items, isStreaming })
+  }
+
+  for (const part of parts) {
+    if (part.type === "tool-call" && !isAgentLikeToolName(part.toolName)) {
+      buffer.push(part)
+      continue
+    }
+    flush()
+    result.push(part)
+  }
+  flush()
+
+  return result
+}
+
+/**
+ * Build a map of tool_use_id → tool_result ContentBlock from content blocks.
+ * Used to correlate tool calls with their results.
+ */
+function buildToolResultMap(
+  blocks: ContentBlock[]
+): Map<string, ContentBlock & { type: "tool_result" }> {
+  const map = new Map<string, ContentBlock & { type: "tool_result" }>()
+  for (const block of blocks) {
+    if (block.type === "tool_result" && block.tool_use_id) {
+      map.set(block.tool_use_id, block)
+    }
+  }
+  return map
+}
+
+/**
+ * Transform a MessageTurn (from backend) to AdaptedMessage format.
+ * Same correlation logic as adaptUnifiedMessage but operates on turn.blocks.
+ *
+ * `inProgressToolCallIds` lets streaming consumers expose partial tool output
+ * (e.g. terminal stdout streamed during execution) without flipping the tool
+ * into a "completed" visual state. When a tool_use's id is in this set, the
+ * adapter emits state="input-available" with the partial output attached, so
+ * the renderer can keep showing the running spinner while the live output
+ * streams in.
+ */
+export function adaptMessageTurn(
+  turn: MessageTurn,
+  text: AdapterMessageText,
+  isStreaming: boolean = false,
+  inProgressToolCallIds?: Set<string>
+): AdaptedMessage {
+  const adaptedContent: AdaptedContentPart[] = []
+  const resultMap = buildToolResultMap(turn.blocks)
+  const matchedResultIds = new Set<string>()
+
+  // Track indices of tool_result blocks consumed by position-based matching
+  const positionMatchedIndices = new Set<number>()
+
+  for (let index = 0; index < turn.blocks.length; index++) {
+    const block = turn.blocks[index]
+
+    if (turn.role === "assistant" && block.type === "text") {
+      const expandedParts = expandInlineToolText(
+        block.text,
+        turn.id,
+        index,
+        text.toolCallFailed
+      )
+      if (expandedParts) {
+        adaptedContent.push(...expandedParts)
+        continue
+      }
+    }
+
+    if (block.type === "tool_use") {
+      const toolCallId = block.tool_use_id || generateToolCallId(turn.id, index)
+      const matchedResult = block.tool_use_id
+        ? resultMap.get(block.tool_use_id)
+        : undefined
+
+      const isToolStillRunning =
+        !!block.tool_use_id && !!inProgressToolCallIds?.has(block.tool_use_id)
+
+      if (matchedResult) {
+        matchedResultIds.add(block.tool_use_id!)
+        adaptedContent.push({
+          type: "tool-call",
+          toolCallId,
+          toolName: block.tool_name,
+          input: block.input_preview,
+          state: isToolStillRunning
+            ? "input-available"
+            : matchedResult.is_error
+              ? "output-error"
+              : "output-available",
+          output: matchedResult.output_preview,
+          errorText: matchedResult.is_error
+            ? matchedResult.output_preview || undefined
+            : undefined,
+          agentStats: matchedResult.agent_stats ?? undefined,
+          meta: block.meta ?? null,
+        })
+      } else {
+        // Position-based matching: if this tool_use has no ID, check next block
+        const nextBlock = turn.blocks[index + 1]
+        const positionalResult =
+          !block.tool_use_id &&
+          nextBlock?.type === "tool_result" &&
+          !nextBlock.tool_use_id
+            ? nextBlock
+            : undefined
+
+        if (positionalResult) {
+          positionMatchedIndices.add(index + 1)
+          adaptedContent.push({
+            type: "tool-call",
+            toolCallId,
+            toolName: block.tool_name,
+            input: block.input_preview,
+            state: positionalResult.is_error
+              ? "output-error"
+              : "output-available",
+            output: positionalResult.output_preview,
+            errorText: positionalResult.is_error
+              ? positionalResult.output_preview || undefined
+              : undefined,
+            agentStats: positionalResult.agent_stats ?? undefined,
+            meta: block.meta ?? null,
+          })
+        } else {
+          // For live streaming, unmatched tools are still running.
+          // For DB historical data, default to "completed" since the
+          // conversation has already ended.
+          adaptedContent.push({
+            type: "tool-call",
+            toolCallId,
+            toolName: block.tool_name,
+            input: block.input_preview,
+            state: isStreaming ? "input-available" : "output-available",
+            meta: block.meta ?? null,
+          })
+        }
+      }
+      continue
+    }
+
+    // Skip tool_result blocks already matched by ID or position
+    if (
+      block.type === "tool_result" &&
+      ((block.tool_use_id && matchedResultIds.has(block.tool_use_id)) ||
+        positionMatchedIndices.has(index))
+    ) {
+      continue
+    }
+
+    const adapted = adaptContentBlock(block, turn.id, index, false)
+    if (adapted) {
+      adaptedContent.push(adapted)
+    }
+  }
+
+  // Mark the last reasoning block as streaming if the turn is actively streaming
+  if (isStreaming) {
+    const last = adaptedContent[adaptedContent.length - 1]
+    if (last?.type === "reasoning") {
+      last.isStreaming = true
+    }
+  }
+
+  const groupedContent =
+    turn.role === "assistant"
+      ? groupConsecutiveToolCalls(adaptedContent)
+      : adaptedContent
+
+  const userSplit =
+    turn.role === "user"
+      ? splitUserTextAndResources(groupedContent, text.attachedResources)
+      : { parts: groupedContent, resources: [] as UserResourceDisplay[] }
+  // Only user-uploaded images surface as top-of-message attachments.
+  // Assistant-side image_generation flows through the inline
+  // `generated-image` part, rendered in-position.
+  const userImages =
+    turn.role === "user" ? extractUserImagesFromBlocks(turn.blocks) : []
+
+  return {
+    id: turn.id,
+    role: turn.role,
+    content: userSplit.parts,
+    userResources:
+      userSplit.resources.length > 0 ? userSplit.resources : undefined,
+    userImages: userImages.length > 0 ? userImages : undefined,
+    timestamp: turn.timestamp,
+    usage: turn.usage,
+    duration_ms: turn.duration_ms,
+    model: turn.model,
+    completed_at: turn.completed_at,
+  }
+}
+
+/**
+ * Transform all turns in a conversation to AdaptedMessage[].
+ * Internally computes completedToolIds so callers don't need to.
+ *
+ * `inProgressToolCallIdsByIndex` carries the set of tool_call_ids that are
+ * still streaming for each streaming-phase turn (keyed by turn index). The
+ * adapter forwards this to adaptMessageTurn so partial output renders without
+ * flipping the tool out of the running visual state.
+ */
+export function adaptMessageTurns(
+  turns: MessageTurn[],
+  text: AdapterMessageText,
+  streamingIndices?: Set<number>,
+  inProgressToolCallIdsByIndex?: Map<number, Set<string>>
+): AdaptedMessage[] {
+  return turns.map((turn, i) =>
+    adaptMessageTurn(
+      turn,
+      text,
+      streamingIndices?.has(i) ?? false,
+      inProgressToolCallIdsByIndex?.get(i)
+    )
+  )
+}
+
+interface TurnCacheEntry {
+  text: AdapterMessageText
+  blocks: ContentBlock[]
+  blocksLen: number
+  timestamp: string
+  role: MessageRole
+  usage: TurnUsage | null | undefined
+  duration_ms: number | null | undefined
+  model: string | null | undefined
+  completed_at: string | null | undefined
+  adapted: AdaptedMessage
+}
+
+export interface MessageTurnAdapter {
+  /**
+   * Adapt all turns to messages, reusing previously computed `AdaptedMessage`
+   * references for turns whose content hasn't changed. Streaming turns and
+   * turns with in-progress tool calls are never cached so partial state always
+   * re-flows through the adapter.
+   */
+  adapt(
+    turns: MessageTurn[],
+    text: AdapterMessageText,
+    streamingIndices?: Set<number>,
+    inProgressToolCallIdsByIndex?: Map<number, Set<string>>
+  ): AdaptedMessage[]
+  clear(): void
+}
+
+/**
+ * Build a stateful adapter that caches per-turn results. Intended to live for
+ * the lifetime of a chat view — instantiate once via `useRef` so the cache
+ * survives across re-renders triggered by streaming deltas.
+ *
+ * Cache invalidation: an entry is reused only when `(text, blocks,
+ * blocksLen, timestamp, role, usage, duration_ms, model)` all match. The
+ * blocks reference catches whole-turn rewrites (e.g. detail refetch
+ * replacing `detail.turns`) where blocksLen/timestamp may stay equal but
+ * a tool's output_preview was updated; PATCH_TURN_METADATA preserves the
+ * blocks reference, so it still hits. The usage trio is patched in by
+ * `syncTurnMetadata` after a stream finishes (initial blocks land first,
+ * token totals arrive on a later DB roundtrip), so excluding them would
+ * freeze the turn at its pre-patch state and the post-stream stats row
+ * would never appear. Turns no longer present are GC'd at the end of
+ * every adapt() call so the cache size tracks the conversation.
+ */
+export function createMessageTurnAdapter(): MessageTurnAdapter {
+  const cache = new Map<string, TurnCacheEntry>()
+
+  return {
+    adapt(turns, text, streamingIndices, inProgressToolCallIdsByIndex) {
+      const seen = new Set<string>()
+      const out: AdaptedMessage[] = new Array(turns.length)
+
+      for (let i = 0; i < turns.length; i += 1) {
+        const turn = turns[i]
+        seen.add(turn.id)
+        const isStreaming = streamingIndices?.has(i) ?? false
+        const inProgress = inProgressToolCallIdsByIndex?.get(i)
+        const cacheable = !isStreaming && !inProgress
+        const blocksLen = turn.blocks.length
+
+        if (cacheable) {
+          const cached = cache.get(turn.id)
+          if (
+            cached &&
+            cached.text === text &&
+            cached.blocks === turn.blocks &&
+            cached.blocksLen === blocksLen &&
+            cached.timestamp === turn.timestamp &&
+            cached.role === turn.role &&
+            cached.usage === turn.usage &&
+            cached.duration_ms === turn.duration_ms &&
+            cached.model === turn.model &&
+            cached.completed_at === turn.completed_at
+          ) {
+            out[i] = cached.adapted
+            continue
+          }
+        }
+
+        const adapted = adaptMessageTurn(turn, text, isStreaming, inProgress)
+        out[i] = adapted
+
+        if (cacheable) {
+          cache.set(turn.id, {
+            text,
+            blocks: turn.blocks,
+            blocksLen,
+            timestamp: turn.timestamp,
+            role: turn.role,
+            usage: turn.usage,
+            duration_ms: turn.duration_ms,
+            model: turn.model,
+            completed_at: turn.completed_at,
+            adapted,
+          })
+        } else {
+          cache.delete(turn.id)
+        }
+      }
+
+      if (cache.size > seen.size) {
+        for (const id of cache.keys()) {
+          if (!seen.has(id)) cache.delete(id)
+        }
+      }
+
+      return out
+    },
+    clear() {
+      cache.clear()
+    },
+  }
+}

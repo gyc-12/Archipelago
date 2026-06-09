@@ -1,0 +1,219 @@
+name: Release Archipelago
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+        type: string
+      draft:
+        description: "Create the GitHub release as a draft"
+        default: false
+        required: false
+        type: boolean
+      prerelease:
+        description: "Mark the GitHub release as a prerelease"
+        default: false
+        required: false
+        type: boolean
+      build_dmg:
+        description: "Build a styled DMG in addition to the zip"
+        default: true
+        required: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package macOS app
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            tag="${{ inputs.tag }}"
+            build_dmg="${{ inputs.build_dmg }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+            build_dmg="true"
+          fi
+
+          if [[ ! "$tag" =~ ^v[0-9]+(\.[0-9]+)*([.-][0-9A-Za-z]+)*$ ]]; then
+            echo "Release tag must look like v0.1.0 or v0.1.0-beta.1: $tag" >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          skip_dmg="false"
+          if [[ "$build_dmg" != "true" ]]; then
+            skip_dmg="true"
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "skip_dmg=$skip_dmg" >> "$GITHUB_OUTPUT"
+          echo "artifact_suffix=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: modules/collaboration-runtime/pnpm-lock.yaml
+
+      - name: Install create-dmg
+        if: steps.meta.outputs.skip_dmg != 'true'
+        shell: bash
+        run: brew install create-dmg
+
+      - name: Cache Cargo and Swift build outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            modules/collaboration-runtime/src-tauri/target
+            apps/archipelago-macos/.build
+          key: ${{ runner.os }}-release-${{ hashFiles('modules/collaboration-runtime/src-tauri/Cargo.lock', 'apps/archipelago-macos/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-release-
+
+      - name: Install runtime dependencies
+        working-directory: modules/collaboration-runtime
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure signing and notarization
+        id: signing
+        shell: bash
+        env:
+          CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          CONFIGURED_SIGN_IDENTITY: ${{ vars.ARCHIPELAGO_SIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${CERTIFICATE_P12_BASE64:-}" ]]; then
+            echo "No signing certificate configured; package-app.sh will produce an unsigned local bundle."
+            echo "sign_identity=" >> "$GITHUB_OUTPUT"
+            echo "notary_profile=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          keychain_password="${KEYCHAIN_PASSWORD:-archipelago-ci-keychain}"
+          keychain_path="$RUNNER_TEMP/archipelago-signing.keychain-db"
+          certificate_path="$RUNNER_TEMP/archipelago-certificate.p12"
+
+          if ! echo "$CERTIFICATE_P12_BASE64" | base64 --decode > "$certificate_path" 2>/dev/null; then
+            echo "$CERTIFICATE_P12_BASE64" | base64 -D > "$certificate_path"
+          fi
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -P "${CERTIFICATE_PASSWORD:-}" -A -t cert -f pkcs12 -k "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" $(security list-keychains -d user | sed 's/[ "]//g')
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain_path"
+
+          sign_identity="${CONFIGURED_SIGN_IDENTITY:-}"
+          if [[ -z "$sign_identity" ]]; then
+            sign_identity="$(security find-identity -v -p codesigning "$keychain_path" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          fi
+          if [[ -z "$sign_identity" ]]; then
+            echo "Could not find a Developer ID Application signing identity in the imported certificate." >&2
+            exit 1
+          fi
+          echo "sign_identity=$sign_identity" >> "$GITHUB_OUTPUT"
+
+          if [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+            notary_profile="archipelago-ci-notary"
+            xcrun notarytool store-credentials "$notary_profile" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_SPECIFIC_PASSWORD"
+            echo "notary_profile=$notary_profile" >> "$GITHUB_OUTPUT"
+          else
+            echo "Apple notarization credentials are incomplete; signed artifacts will not be notarized."
+            echo "notary_profile=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package Archipelago.app
+        working-directory: apps/archipelago-macos
+        shell: zsh {0}
+        env:
+          ARCHIPELAGO_VERSION: ${{ steps.meta.outputs.version }}
+          ARCHIPELAGO_BUILD_NUMBER: ${{ github.run_number }}
+          ARCHIPELAGO_SKIP_BRAND_GENERATION: "true"
+          ARCHIPELAGO_SKIP_DMG: ${{ steps.meta.outputs.skip_dmg }}
+          ARCHIPELAGO_SIGN_IDENTITY: ${{ steps.signing.outputs.sign_identity }}
+          ARCHIPELAGO_NOTARY_PROFILE: ${{ steps.signing.outputs.notary_profile }}
+          ARCHIPELAGO_APPCAST_URL: ${{ vars.ARCHIPELAGO_APPCAST_URL }}
+          ARCHIPELAGO_EDDSA_PUBLIC_KEY: ${{ vars.ARCHIPELAGO_EDDSA_PUBLIC_KEY }}
+        run: zsh scripts/package-app.sh
+
+      - name: Collect release artifacts
+        id: artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${{ steps.meta.outputs.artifact_suffix }}"
+          package_root="apps/archipelago-macos/output/package"
+          release_root="release-artifacts"
+          mkdir -p "$release_root"
+
+          cp "$package_root/Archipelago.zip" "$release_root/Archipelago-$tag.zip"
+          if [[ -f "$package_root/Archipelago.dmg" ]]; then
+            cp "$package_root/Archipelago.dmg" "$release_root/Archipelago-$tag.dmg"
+          fi
+
+          (cd "$release_root" && shasum -a 256 * > "Archipelago-$tag.sha256")
+          ls -la "$release_root"
+
+      - name: Upload packaged artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: archipelago-${{ steps.meta.outputs.artifact_suffix }}
+          path: release-artifacts/*
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Archipelago ${{ steps.meta.outputs.tag }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && inputs.draft || false }}
+          prerelease: ${{ github.event_name == 'workflow_dispatch' && inputs.prerelease || false }}
+          generate_release_notes: true
+          files: release-artifacts/*

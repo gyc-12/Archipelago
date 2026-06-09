@@ -1,0 +1,3 @@
+{"file": "DESIGN.md", "reason": "Apple 设计规范参考（色彩、字体、间距）"}
+{"file": "modules/collaboration-runtime/src/components/message/message-bubble.tsx", "reason": "消息气泡组件，需要重构为 iMessage 风格"}
+{"file": "modules/collaboration-runtime/src/app/globals.css", "reason": "全局样式和色彩变量定义"}

@@ -1,0 +1,2 @@
+{"file": "DESIGN.md", "reason": "验证色彩和字体是否符合设计规范"}
+{"file": "modules/collaboration-runtime/src/components/message/message-bubble.tsx", "reason": "验证消息气泡样式和布局"}

@@ -1,0 +1,6 @@
+{"file": ".trellis/tasks/06-01-island-codeg/prd.md", "reason": "Full PRD with requirements, decisions, architecture, and implementation order"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/island-swift-patterns.md", "reason": "Island Swift architecture: state management, navigation pattern, concurrency model, file layout"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/codeg-api-shape.md", "reason": "Codeg REST + WebSocket API shape: endpoints, request/response types, JSON conventions, deep link format"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/error-handling.md", "reason": "Error handling patterns for both Island and Codeg sides"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/test-strategy.md", "reason": "Test strategy: what to test, test infrastructure, manual E2E checklist"}
+{"file": "DESIGN.md", "reason": "Design system tokens: colors, typography, spacing, component specs for UI adaptation"}

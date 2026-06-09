@@ -1,0 +1,5 @@
+{"file": ".trellis/tasks/06-01-island-codeg/prd.md", "reason": "Acceptance criteria and requirements to verify against"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/codeg-api-shape.md", "reason": "API contract: verify correct endpoints, request shapes, WebSocket events"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/error-handling.md", "reason": "Error handling requirements: verify correct error patterns, no forbidden patterns"}
+{"file": ".trellis/tasks/06-01-island-codeg/research/test-strategy.md", "reason": "Test coverage: verify required tests are written and passing"}
+{"file": "DESIGN.md", "reason": "Design compliance: verify color tokens, typography, spacing match spec"}
