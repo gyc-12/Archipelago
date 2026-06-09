@@ -11,6 +11,12 @@ Archipelago is a macOS agent-collaboration app for creating, operating, and revi
 It ships as one product, `Archipelago.app`. Internally, it combines a native SwiftUI Island shell with an embedded Archipelago Server runtime that provides the web chat UI, ACP agent sessions, SQLite persistence, artifact preview/editing, settings, and LAN web service access.
 
 Chinese version: [README_zh.md](./README_zh.md)
+## Video
+
+
+https://github.com/user-attachments/assets/89d5c619-5cfc-46a4-ae5e-9dc7cce154d9
+
+
 
 ## Screenshots
 
