@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, for example v0.1.0"
+        description: "Release tag, for example v0.1.0 (or 0.1.0)"
         required: true
         type: string
       draft:
@@ -54,6 +54,9 @@ jobs:
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             tag="${{ inputs.tag }}"
             build_dmg="${{ inputs.build_dmg }}"
+            if [[ "$tag" != v* ]]; then
+              tag="v${tag}"
+            fi
           else
             tag="${GITHUB_REF_NAME}"
             build_dmg="true"
